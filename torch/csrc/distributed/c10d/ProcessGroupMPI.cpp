@@ -13,8 +13,6 @@
 #include <mpi-ext.h> // Needed for CUDA-aware check
 #endif
 
-namespace c10d {
-
 #define MPI_CHECK(cmd)                                                   \
   do {                                                                   \
     int mpiStatus = cmd;                                                 \
@@ -25,6 +23,14 @@ namespace c10d {
       TORCH_CHECK(false, err);                                           \
     }                                                                    \
   } while (0)
+
+//
+
+#define MPI_USE_DIRECT_NB_CALLS
+
+//
+
+namespace c10d {
 
 namespace {
 
@@ -107,6 +113,10 @@ c10::intrusive_ptr<c10::ivalue::Future> ProcessGroupMPI::WorkMPI::getFuture() {
   return future_;
 }
 
+// ************************************************
+// Base MPI Work related
+// ************************************************
+
 void ProcessGroupMPI::WorkMPI::finishWorkMPIError(
     const std::exception_ptr& eptr) {
   future_->setError(eptr);
@@ -117,6 +127,10 @@ void ProcessGroupMPI::WorkMPI::finishWorkMPI() {
   future_->markCompleted(at::IValue(outputTensors_));
   finish();
 }
+
+//-------------------------------------------------
+// [SECTION] Async MPI Work related
+//-------------------------------------------------
 
 ProcessGroupMPI::AsyncWork::AsyncWork(
     MPI_Request request,
@@ -223,6 +237,14 @@ void ProcessGroupMPI::AsyncWork::populateException() {
       std::make_exception_ptr(std::runtime_error(std::string(buf.data(), len)));
 }
 
+// ************************************************
+// ************************************************
+//
+// MPI process group implementation
+//
+// ************************************************
+// ************************************************
+
 // Static global states
 int ProcessGroupMPI::mpiThreadSupport_ = 0;
 std::mutex ProcessGroupMPI::pgGlobalMutex_;
@@ -321,8 +343,20 @@ ProcessGroupMPI::ProcessGroupMPI(int rank, int size, MPI_Comm pgComm)
     TORCH_CHECK(false, "pgComm_ must not be MPI_COMM_NULL");
   }
 
+#ifdef MPI_USE_DIRECT_NB_CALLS
+  if (0 == rank) {
+    fprintf(
+        stdout,
+        "\nNOTE:  This Torch MPI backend uses direct Non-Blocking calls!\n");
+  }
+#else
+  if (0 == rank) {
+    fprintf(
+        stdout, "\nNOTE:  Using default Torch MPI backend implementation.\n");
+  }
   // Start the worker thread accepting MPI calls
   workerThread_ = std::thread(&ProcessGroupMPI::runLoop, this);
+#endif
 
   init();
 }
@@ -343,13 +377,18 @@ void ProcessGroupMPI::destroy() {
   queueProduceCV_.notify_all();
 
   // Join the single worker thread
-  workerThread_.join();
+  if (workerThread_.joinable()) {
+    workerThread_.join();
+  }
+  return;
 }
 
 void ProcessGroupMPI::abort() {
   destroy();
   MPI_Abort(pgComm_, EXIT_FAILURE);
 }
+
+//
 
 void ProcessGroupMPI::runLoop() {
   std::unique_lock<std::mutex> lock(pgMutex_);
@@ -394,35 +433,41 @@ c10::intrusive_ptr<Work> ProcessGroupMPI::enqueue(
   return work;
 }
 
-c10::intrusive_ptr<Work> ProcessGroupMPI::broadcast(
-    std::vector<at::Tensor>& tensors,
-    const BroadcastOptions& opts) {
-  checkSingleTensor(tensors);
-  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
-      [opts, this](std::unique_ptr<WorkEntry>& entry) {
-        auto data = (entry->src)[0];
-        c10::DeviceGuard guard(data.device());
-        std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
-        MPI_CHECK(MPI_Bcast(
-            data.data_ptr(),
-            data.numel(),
-            mpiDatatype.at(data.scalar_type()),
-            opts.rootRank,
-            pgComm_));
-      };
-  auto entry =
-      std::make_unique<WorkEntry>(&tensors, &tensors, std::move(runFunc));
-  return enqueue(
-      std::move(entry),
-      "mpi:broadcast",
-      std::optional<std::vector<at::Tensor>>(tensors));
-}
+//
+
+//----------------------------------------------------
+// [SECTION]: Allreduce
+//----------------------------------------------------
 
 c10::intrusive_ptr<Work> ProcessGroupMPI::allreduce(
     std::vector<at::Tensor>& tensors,
     const AllreduceOptions& opts) {
+  // c
   checkSingleTensor(tensors);
 
+#ifdef MPI_USE_DIRECT_NB_CALLS
+  auto& tensor = tensors[0];
+  MPI_Request request = MPI_REQUEST_NULL;
+
+  {
+    c10::DeviceGuard guard(tensor.device());
+    std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+    MPI_CHECK(MPI_Iallreduce(
+        MPI_IN_PLACE,
+        tensor.data_ptr(),
+        tensor.numel(),
+        mpiDatatype.at(tensor.scalar_type()),
+        mpiOp.at(opts.reduceOp),
+        pgComm_,
+        &request));
+  }
+
+  auto work = c10::make_intrusive<AsyncWork>(
+      request,
+      std::vector<at::Tensor>(),
+      "mpi:send",
+      std::optional<std::vector<at::Tensor>>(tensors));
+#else
   std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [opts, this](std::unique_ptr<WorkEntry>& entry) {
         auto data = (entry->src)[0];
@@ -438,10 +483,12 @@ c10::intrusive_ptr<Work> ProcessGroupMPI::allreduce(
       };
   auto entry =
       std::make_unique<WorkEntry>(&tensors, &tensors, std::move(runFunc));
-  return enqueue(
+  auto work = enqueue(
       std::move(entry),
       "mpi:all_reduce",
       std::optional<std::vector<at::Tensor>>(tensors));
+#endif
+  return work;
 }
 
 c10::intrusive_ptr<Work> ProcessGroupMPI::allreduce_coalesced(
@@ -612,6 +659,30 @@ c10::intrusive_ptr<Work> ProcessGroupMPI::gather(
         "mpi:gather",
         std::optional<std::vector<at::Tensor>>(inputTensors));
   }
+}
+
+c10::intrusive_ptr<Work> ProcessGroupMPI::broadcast(
+    std::vector<at::Tensor>& tensors,
+    const BroadcastOptions& opts) {
+  checkSingleTensor(tensors);
+  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+      [opts, this](std::unique_ptr<WorkEntry>& entry) {
+        auto data = (entry->src)[0];
+        c10::DeviceGuard guard(data.device());
+        std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+        MPI_CHECK(MPI_Bcast(
+            data.data_ptr(),
+            data.numel(),
+            mpiDatatype.at(data.scalar_type()),
+            opts.rootRank,
+            pgComm_));
+      };
+  auto entry =
+      std::make_unique<WorkEntry>(&tensors, &tensors, std::move(runFunc));
+  return enqueue(
+      std::move(entry),
+      "mpi:broadcast",
+      std::optional<std::vector<at::Tensor>>(tensors));
 }
 
 c10::intrusive_ptr<Work> ProcessGroupMPI::scatter(
