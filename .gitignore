@@ -398,6 +398,5 @@ CMakeFiles/
 # Custom
 err_cpu.txt
 out_cpu.txt
-make_cpu.sh
 compile_flags.txt
 .clangd

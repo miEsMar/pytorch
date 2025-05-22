@@ -26,7 +26,7 @@
 
 //
 
-// #define MPI_USE_DIRECT_NB_CALLS
+#define MPI_USE_DIRECT_NB_CALLS
 
 //
 

@@ -786,6 +786,18 @@ if(HAVE_SOVERSION)
 endif()
 torch_compile_options(torch_cpu)  # see cmake/public/utils.cmake
 
+
+if (NOT DEFINED ENV{MOSE_ROOT})
+    message(FATAL_ERROR "MOSE_ROOT env variable not defined, but needed to locate MOSE library.")
+endif()
+add_library(lib_mose SHARED IMPORTED GLOBAL)
+set_target_properties(lib_mose PROPERTIES
+    IMPORTED_LOCATION "$ENV{MOSE_ROOT}/build/libmose_ompi_progress.so"
+)
+target_include_directories(torch_cpu PRIVATE "$ENV{MOSE_ROOT}/src")
+target_link_libraries(torch_cpu PRIVATE lib_mose)
+
+
 if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND NOT USE_IOS AND NOT USE_COREML_DELEGATE)
   target_compile_options_if_supported(torch_cpu "-Wmissing-prototypes")
   target_compile_options_if_supported(torch_cpu "-Werror=missing-prototypes")

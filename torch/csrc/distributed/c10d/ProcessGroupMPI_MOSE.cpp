@@ -1,4 +1,3 @@
-#include <mpi.h>
 #include <torch/csrc/distributed/c10d/ProcessGroupMPI_MOSE.hpp>
 
 #ifdef USE_C10D_MPI
@@ -10,6 +9,7 @@
 #include <c10/util/irange.h>
 #include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
 
+#include <mpi.h>
 #if defined(OPEN_MPI) && OPEN_MPI
 #include <mpi-ext.h> // Needed for CUDA-aware check
 #endif
@@ -28,10 +28,6 @@
       TORCH_CHECK(false, err);                                           \
     }                                                                    \
   } while (0)
-
-//
-
-#define MPI_USE_DIRECT_NB_CALLS
 
 //
 
@@ -96,17 +92,17 @@ void checkSingleTensor(const std::vector<at::Tensor>& tensors) {
   checkSingleTensorHelper(tensors[0]);
 }
 
-void checkSameSizeAndType(
-    const at::Tensor& t_in,
-    const std::vector<at::Tensor>& tensors) {
-  for (const auto& tensor : tensors) {
-    if ((tensor.numel() != t_in.numel()) ||
-        (tensor.scalar_type() != t_in.scalar_type())) {
-      TORCH_CHECK(false, "Tensors are not equal in size or data type");
-    }
-    checkSingleTensorHelper(tensor);
-  }
-}
+// void checkSameSizeAndType(
+//     const at::Tensor& t_in,
+//     const std::vector<at::Tensor>& tensors) {
+//   for (const auto& tensor : tensors) {
+//     if ((tensor.numel() != t_in.numel()) ||
+//         (tensor.scalar_type() != t_in.scalar_type())) {
+//       TORCH_CHECK(false, "Tensors are not equal in size or data type");
+//     }
+//     checkSingleTensorHelper(tensor);
+//   }
+// }
 
 } // namespace
 
@@ -139,7 +135,6 @@ bool ProcessGroupMPI_MOSE::AsyncWork::isCompleted() {
     return true;
   }
 
-  std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
   int flag = 0;
   MPI_CHECK(MPI_Test(&request_, &flag, &status_));
   if (request_ != MPI_REQUEST_NULL) {
@@ -181,7 +176,6 @@ bool ProcessGroupMPI_MOSE::AsyncWork::wait(
     return true;
   }
 
-  std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
   MPI_CHECK(MPI_Wait(&request_, &status_));
   auto ok = (status_.MPI_ERROR == MPI_SUCCESS);
 
@@ -363,7 +357,7 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::barrier(
   }
 
   auto work = c10::make_intrusive<AsyncWork>(
-      dummy, std::vector<at::Tensor>(), "mpi:barrier", nullptr);
+      dummy, std::vector<at::Tensor>(), "mpi:barrier", std::nullopt);
   return work;
 }
 

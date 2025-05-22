@@ -14,7 +14,7 @@
 
 #include <mpi.h>
 
-#define MPI_BACKEND_NAME "mose_mose"
+#define MPI_BACKEND_NAME "mpi_mose"
 
 namespace c10d {
 
