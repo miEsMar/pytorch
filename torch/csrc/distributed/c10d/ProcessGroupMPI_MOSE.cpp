@@ -288,9 +288,7 @@ ProcessGroupMPI_MOSE::ProcessGroupMPI_MOSE(int rank, int size, MPI_Comm pgComm)
   }
 
   if (0 == rank) {
-    fprintf(
-        stdout,
-        "\nNOTE:  This Torch MPI backend uses direct Non-Blocking calls!\n");
+    fprintf(stdout, "\nNOTE:  Using custom MPI-MOSE backend implementation.\n");
   }
 
   init();
