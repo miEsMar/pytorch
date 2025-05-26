@@ -60,17 +60,26 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
     return std::string(MPI_MOSE_BACKEND_NAME);
   }
 
-  c10::intrusive_ptr<Work> allreduce(
-      std::vector<at::Tensor>& tensors,
-      const AllreduceOptions& opts = AllreduceOptions()) override;
-
   c10::intrusive_ptr<Work> allgather(
       std::vector<std::vector<at::Tensor>>& outputTensors,
       std::vector<at::Tensor>& inputTensors,
       const AllgatherOptions& opts = AllgatherOptions()) override;
 
+  c10::intrusive_ptr<Work> allreduce(
+      std::vector<at::Tensor>& tensors,
+      const AllreduceOptions& opts = AllreduceOptions()) override;
+
   c10::intrusive_ptr<Work> barrier(
       const BarrierOptions& opts = BarrierOptions()) override;
+
+  c10::intrusive_ptr<Work> broadcast(
+      std::vector<at::Tensor>& data,
+      const BroadcastOptions& opts = BroadcastOptions()) override;
+
+  c10::intrusive_ptr<Work> scatter(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<std::vector<at::Tensor>>& inputTensors,
+      const ScatterOptions& opts = ScatterOptions()) override;
 
   // Creating a new ProcessGroupMPI_MOSE, will initialize MPI if not initialized
   static c10::intrusive_ptr<ProcessGroupMPI_MOSE> createProcessGroupMPI_MOSE(

@@ -1,5 +1,6 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupMPI_MOSE.hpp>
 #include <torch/csrc/distributed/c10d/Utils.hpp>
+#include <vector>
 
 #ifdef USE_C10D_MPI
 
@@ -404,6 +405,103 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::barrier(
 
   auto work = c10::make_intrusive<AsyncWork>(
       dummy, std::vector<at::Tensor>(), "mpi_mose:barrier", std::nullopt);
+  return work;
+}
+
+c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
+    std::vector<at::Tensor>& tensors,
+    const BroadcastOptions& opts) {
+  // c
+  checkSingleTensor(tensors);
+
+  auto& input_tensor = tensors[0];
+  auto& output_tensor = tensors[0];
+
+  MPI_Request request = MPI_REQUEST_NULL;
+
+  {
+    c10::DeviceGuard guard(input_tensor.device());
+    MPI_CHECK(MPI_Bcast(
+        input_tensor.data_ptr(),
+        input_tensor.numel(),
+        mpiDatatype.at(input_tensor.scalar_type()),
+        opts.rootRank,
+        pgComm_));
+  }
+
+  auto work = c10::make_intrusive<AsyncWork>(
+      request,
+      std::vector<at::Tensor>(),
+      "mpi_mose:broadcast",
+      std::optional<std::vector<at::Tensor>>(tensors));
+  return work;
+}
+
+c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::scatter(
+    std::vector<at::Tensor>& outputTensors,
+    std::vector<std::vector<at::Tensor>>& inputTensors,
+    const ScatterOptions& opts) {
+  // c
+  checkSingleTensor(outputTensors);
+
+  if (rank_ != opts.rootRank) {
+    if (!inputTensors.empty()) {
+      TORCH_CHECK(
+          false,
+          "Scatter: number of input tensors should be 0 "
+          "for non-root");
+    }
+  } else {
+    if (inputTensors.size() != 1) {
+      TORCH_CHECK(false, "Scatter: multi-GPU collective is not supported");
+    }
+    if (static_cast<size_t>(size_) != inputTensors[0].size()) {
+      TORCH_CHECK(
+          false,
+          "Scatter: number of input tensors should equal "
+          "to the world size");
+    }
+    checkSameSizeAndType(outputTensors[0], inputTensors[0]);
+  }
+
+  auto& output_tensor = outputTensors[0];
+  void* sendbuf = nullptr;
+
+  MPI_Request request = MPI_REQUEST_NULL;
+
+  if (rank_ == opts.rootRank) {
+    auto& input_tensors = inputTensors[0];
+    auto& input_tensor = input_tensors[0];
+
+    std::vector<at::Tensor>& input_data = inputTensors[0];
+    auto flat_tensor = newLikeFlat(input_data);
+    sendbuf = flat_tensor.data_ptr();
+
+    // copy the input tensors to the flatten large send buffer
+    for (const auto i : c10::irange(input_data.size())) {
+      flat_tensor[static_cast<int64_t>(i)].copy_(input_data.at(i));
+    }
+  } else {
+  }
+
+  {
+    c10::DeviceGuard guard(output_tensor.device());
+    MPI_CHECK(MPI_Scatter(
+        sendbuf,
+        output_tensor.numel(),
+        mpiDatatype.at(output_tensor.scalar_type()),
+        output_tensor.data_ptr(),
+        output_tensor.numel(),
+        mpiDatatype.at(output_tensor.scalar_type()),
+        opts.rootRank,
+        pgComm_));
+  }
+
+  auto work = c10::make_intrusive<AsyncWork>(
+      request,
+      !inputTensors.empty() ? inputTensors[0] : std::vector<at::Tensor>(),
+      "mpi_mose:scatter",
+      std::optional<std::vector<at::Tensor>>(outputTensors));
   return work;
 }
 
