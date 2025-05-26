@@ -77,8 +77,9 @@ class TORCH_API ProcessGroup : public torch::CustomClassHolder {
     NCCL = 2,
     UCC = 3,
     MPI = 4,
-    XCCL = 5,
-    CUSTOM = 6,
+    MPI_MOSE = 5,
+    XCCL = 6,
+    CUSTOM = 7,
   };
 
   static std::string backendTypeToString(const BackendType& type) {
@@ -93,6 +94,8 @@ class TORCH_API ProcessGroup : public torch::CustomClassHolder {
         return "ucc";
       case BackendType::MPI:
         return "mpi";
+      case BackendType::MPI_MOSE:
+        return "mpi_mose";
       case BackendType::UNDEFINED:
         return "undefined";
       case BackendType::CUSTOM:
@@ -115,6 +118,8 @@ class TORCH_API ProcessGroup : public torch::CustomClassHolder {
       return BackendType::UCC;
     } else if (backend == "mpi") {
       return BackendType::MPI;
+    } else if (backend == "mpi_mose") {
+      return BackendType::MPI_MOSE;
     } else {
       return BackendType::CUSTOM;
     }
