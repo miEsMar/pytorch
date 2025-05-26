@@ -415,7 +415,7 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
   checkSingleTensor(tensors);
 
   auto& input_tensor = tensors[0];
-  auto& output_tensor = tensors[0];
+  // auto& output_tensor = tensors[0];
 
   MPI_Request request = MPI_REQUEST_NULL;
 
@@ -471,7 +471,7 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::scatter(
 
   if (rank_ == opts.rootRank) {
     auto& input_tensors = inputTensors[0];
-    auto& input_tensor = input_tensors[0];
+    // auto& input_tensor = input_tensors[0];
 
     std::vector<at::Tensor>& input_data = inputTensors[0];
     auto flat_tensor = newLikeFlat(input_data);
