@@ -1695,7 +1695,7 @@ def init_process_group(
     they provide as it not exposed in a public way.
     """
     group_name = _process_group_name([], use_hashed_name=False)
-    if backend == Backend.MPI:
+    if backend == Backend.MPI or backend == Backend.MPI_MOSE:
         if world_size != -1 or rank != -1:
             warnings.warn(
                 f"For MPI backend, world_size ({world_size}) and rank ({rank}) "
