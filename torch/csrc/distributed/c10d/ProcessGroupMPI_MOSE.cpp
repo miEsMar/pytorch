@@ -1,4 +1,5 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupMPI_MOSE.hpp>
+#include <torch/csrc/distributed/c10d/Utils.hpp>
 
 #ifdef USE_C10D_MPI
 
@@ -92,17 +93,17 @@ void checkSingleTensor(const std::vector<at::Tensor>& tensors) {
   checkSingleTensorHelper(tensors[0]);
 }
 
-// void checkSameSizeAndType(
-//     const at::Tensor& t_in,
-//     const std::vector<at::Tensor>& tensors) {
-//   for (const auto& tensor : tensors) {
-//     if ((tensor.numel() != t_in.numel()) ||
-//         (tensor.scalar_type() != t_in.scalar_type())) {
-//       TORCH_CHECK(false, "Tensors are not equal in size or data type");
-//     }
-//     checkSingleTensorHelper(tensor);
-//   }
-// }
+void checkSameSizeAndType(
+    const at::Tensor& t_in,
+    const std::vector<at::Tensor>& tensors) {
+  for (const auto& tensor : tensors) {
+    if ((tensor.numel() != t_in.numel()) ||
+        (tensor.scalar_type() != t_in.scalar_type())) {
+      TORCH_CHECK(false, "Tensors are not equal in size or data type");
+    }
+    checkSingleTensorHelper(tensor);
+  }
+}
 
 } // namespace
 
@@ -338,8 +339,55 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allreduce(
   auto work = c10::make_intrusive<AsyncWork>(
       request,
       std::vector<at::Tensor>(),
-      "mpi:allreduce",
+      "mpi_mose:allreduce",
       std::optional<std::vector<at::Tensor>>(tensors));
+  return work;
+}
+
+c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
+    std::vector<std::vector<at::Tensor>>& outputTensors,
+    std::vector<at::Tensor>& inputTensors,
+    const AllgatherOptions& opts) {
+  // c
+  checkSingleTensor(inputTensors);
+  if (outputTensors.size() != 1) {
+    TORCH_CHECK(
+        false,
+        "MPI process group only supports a single "
+        "tensor op");
+  }
+  if (static_cast<size_t>(size_) != outputTensors[0].size()) {
+    TORCH_CHECK(
+        false,
+        "All gather: number of output tensors should equal "
+        "to the world size");
+  }
+  checkSameSizeAndType(inputTensors[0], outputTensors[0]);
+
+  auto& input_tensor = inputTensors[0];
+  auto& output_tensor = outputTensors[0];
+  auto flat_out_vec = newLikeFlat(output_tensor);
+
+  MPI_Request request = MPI_REQUEST_NULL;
+
+  {
+    c10::DeviceGuard guard(input_tensor.device());
+    MPI_CHECK(MPI_Allgather(
+        input_tensor.data_ptr(),
+        input_tensor.numel(),
+        mpiDatatype.at(input_tensor.scalar_type()),
+        flat_out_vec.data_ptr(),
+        input_tensor.numel(),
+        mpiDatatype.at(input_tensor.scalar_type()),
+        pgComm_));
+
+    for (const auto i : c10::irange(output_tensor.size())) {
+      output_tensor[i].copy_(flat_out_vec[static_cast<int64_t>(i)]);
+    }
+  }
+
+  auto work = c10::make_intrusive<AsyncWork>(
+      request, std::vector<at::Tensor>(), "mpi_mose:allgather", std::nullopt);
   return work;
 }
 
@@ -355,7 +403,7 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::barrier(
   }
 
   auto work = c10::make_intrusive<AsyncWork>(
-      dummy, std::vector<at::Tensor>(), "mpi:barrier", std::nullopt);
+      dummy, std::vector<at::Tensor>(), "mpi_mose:barrier", std::nullopt);
   return work;
 }
 
