@@ -87,6 +87,7 @@ __all__ = [
     "is_gloo_available",
     "is_initialized",
     "is_mpi_available",
+    "is_mpi_mose_available",
     "is_backend_available",
     "is_nccl_available",
     "is_torchelastic_launched",
@@ -132,6 +133,7 @@ __all__ = [
 ]
 
 _MPI_AVAILABLE = True
+_MPI_MOSE_AVAILABLE = False
 _NCCL_AVAILABLE = True
 _GLOO_AVAILABLE = True
 _UCC_AVAILABLE = True
@@ -174,6 +176,15 @@ try:
     __all__ += ["ProcessGroupMPI"]
 except ImportError:
     _MPI_AVAILABLE = False
+
+try:
+    from torch._C._distributed_c10d import ProcessGroupMPI_MOSE
+
+    ProcessGroupMPI_MOSE.__module__ = "torch.distributed.distributed_c10d"
+    __all__ += ["ProcessGroupMPI_MOSE"]
+    _MPI_MOSE_AVAILABLE = True
+except ImportError:
+    pass
 
 try:
     from torch._C._distributed_c10d import ProcessGroupNCCL
@@ -1232,6 +1243,10 @@ def is_mpi_available() -> bool:
     """Check if the MPI backend is available."""
     return _MPI_AVAILABLE
 
+def is_mpi_mose_available() -> bool:
+    """Check if the MPI_MOSE backend is available."""
+    return _MPI_MOSE_AVAILABLE
+
 
 def is_nccl_available() -> bool:
     """Check if the NCCL backend is available."""
@@ -1929,15 +1944,23 @@ def _new_process_group_helper(
         # a single store can be reused by multiple groups.
         backend_prefix_store = PrefixStore(f"{device}/", prefix_store)
 
-        if backend_str == Backend.MPI:
+        if backend_str == Backend.MPI or backend_str == Backend.MPI_MOSE:
             if not is_mpi_available():
                 raise RuntimeError(
                     "Distributed package doesn't have MPI built in."
                     " MPI is only included if you build PyTorch from"
                     " source on a host that has MPI installed."
                 )
-            backend_class = ProcessGroupMPI.create(global_ranks_in_group)
-            backend_type = ProcessGroup.BackendType.MPI
+            if (backend_str == Backend.MPI):
+                backend_class = ProcessGroupMPI.create(global_ranks_in_group)
+                backend_type = ProcessGroup.BackendType.MPI
+            else:
+                if (not is_mpi_mose_available()):
+                    raise RuntimeError(
+                        "Distributed package doesn't have MPI_MOSE built in."
+                    )
+                backend_class = ProcessGroupMPI_MOSE.create(global_ranks_in_group)
+                backend_type  = ProcessGroup.BackendType.MPI_MOSE
             if not backend_class:
                 return GroupMember.NON_GROUP_MEMBER, None
             # create new process group with accurate rank and size

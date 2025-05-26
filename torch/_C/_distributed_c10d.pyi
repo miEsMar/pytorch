@@ -650,6 +650,17 @@ class ProcessGroupMPI(Backend):
     @staticmethod
     def create(ranks: list[int]) -> ProcessGroupMPI: ...
 
+class ProcessGroupMPI_MOSE(Backend):
+    def __init__(
+        self,
+        rank: int,
+        size: int,
+        pgComm: int,
+    ) -> None: ...
+    @staticmethod
+    def create(ranks: list[int]) -> ProcessGroupMPI_MOSE: ...
+
+
 def _compute_bucket_assignment_by_size(
     tensors: list[Tensor],
     bucket_size_limits: list[int],
