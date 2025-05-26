@@ -3266,7 +3266,7 @@ Example::
       py::call_guard<py::gil_scoped_release>());
 
   auto processGroupMPI_MOSE =
-      intrusive_ptr_no_gil_destructor_class_<::c10d::processGroupMPI_MOSE>(
+      intrusive_ptr_no_gil_destructor_class_<::c10d::ProcessGroupMPI_MOSE>(
           module, "ProcessGroupMPI_MOSE", backend);
 
   // Define static create function instead of a constructor, because
@@ -3275,7 +3275,7 @@ Example::
   processGroupMPI_MOSE.def_static(
       "create",
       [](std::vector<int> ranks) {
-        return ::c10d::ProcessGroupMPI::createProcessGroupMPI_MOSE(
+        return ::c10d::ProcessGroupMPI_MOSE::createProcessGroupMPI_MOSE(
             std::move(ranks));
       },
       py::call_guard<py::gil_scoped_release>());

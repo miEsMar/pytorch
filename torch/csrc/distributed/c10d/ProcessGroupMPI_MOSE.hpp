@@ -14,9 +14,9 @@
 
 #include <mpi.h>
 
-#define MPI_BACKEND_NAME "mpi_mose"
-
 namespace c10d {
+
+constexpr const char* MPI_MOSE_BACKEND_NAME = "mpi_mose";
 
 //
 
@@ -57,7 +57,7 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
   void abort() override;
 
   const std::string getBackendName() const override {
-    return std::string(MPI_BACKEND_NAME);
+    return std::string(MPI_MOSE_BACKEND_NAME);
   }
 
   c10::intrusive_ptr<Work> allreduce(

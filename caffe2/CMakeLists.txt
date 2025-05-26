@@ -792,7 +792,7 @@ if (NOT DEFINED ENV{MOSE_ROOT})
 endif()
 add_library(lib_mose SHARED IMPORTED GLOBAL)
 set_target_properties(lib_mose PROPERTIES
-    IMPORTED_LOCATION "$ENV{MOSE_ROOT}/build/libmose_ompi_progress.so"
+    IMPORTED_LOCATION "$ENV{MOSE_ROOT}/build/libmose_ompi.so"
 )
 target_include_directories(torch_cpu PRIVATE "$ENV{MOSE_ROOT}/src")
 target_link_libraries(torch_cpu PRIVATE lib_mose)
