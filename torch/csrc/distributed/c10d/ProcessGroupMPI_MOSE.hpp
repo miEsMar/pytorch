@@ -1,8 +1,10 @@
 #pragma once
 
+#include <ATen/core/jit_type_base.h>
+#include <c10/core/DeviceType.h>
+#include <c10/util/intrusive_ptr.h>
 #ifdef USE_C10D_MPI
 
-#include <mutex>
 #include <vector>
 
 #include <ATen/core/ivalue.h>
@@ -33,6 +35,17 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
 
     ~AsyncWork() override;
 
+    struct Future : public at::ivalue::Future {
+      explicit Future(const at::TypePtr& type, MPI_Request* request)
+          : at::ivalue::Future(type, {c10::kCPU}), request_(request) {}
+      ~Future() override;
+
+      void wait() override;
+
+     private:
+      MPI_Request* request_ = nullptr;
+    };
+
     bool isCompleted() override;
     bool isSuccess() const override;
     int sourceRank() const override;
@@ -40,10 +53,13 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
     void abort() override;
     std::vector<at::Tensor> result() override;
 
+    c10::intrusive_ptr<at::ivalue::Future> getFuture() override;
+
    protected:
     void populateException();
 
    private:
+    c10::intrusive_ptr<Future> future_;
     const std::vector<at::Tensor> outputTensors_;
     MPI_Request request_;
     MPI_Status status_{};

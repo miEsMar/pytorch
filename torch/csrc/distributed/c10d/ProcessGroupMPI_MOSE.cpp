@@ -1,3 +1,5 @@
+#include <ATen/core/jit_type.h>
+#include <c10/util/intrusive_ptr.h>
 #include <torch/csrc/distributed/c10d/ProcessGroupMPI_MOSE.hpp>
 #include <torch/csrc/distributed/c10d/Utils.hpp>
 #include <vector>
@@ -119,7 +121,8 @@ ProcessGroupMPI_MOSE::AsyncWork::AsyncWork(
     const std::optional<std::vector<at::Tensor>>& inputTensors)
     : Work(-1, OpType::UNKNOWN, profilingTitle, inputTensors),
       outputTensors_(std::move(outputTensors)),
-      request_(request) {
+      request_(request),
+      future_(c10::make_intrusive<Future>(c10::TensorType::get(), &request_)) {
   memset(&status_, 0, sizeof(status_));
 }
 
@@ -215,6 +218,24 @@ void ProcessGroupMPI_MOSE::AsyncWork::populateException() {
   MPI_CHECK(MPI_Error_string(status_.MPI_ERROR, buf.data(), &len));
   exception_ =
       std::make_exception_ptr(std::runtime_error(std::string(buf.data(), len)));
+}
+
+c10::intrusive_ptr<at::ivalue::Future> ProcessGroupMPI_MOSE::AsyncWork::
+    getFuture() {
+  return future_;
+}
+
+ProcessGroupMPI_MOSE::AsyncWork::Future::~Future() {
+  if (*request_ != MPI_REQUEST_NULL) {
+    std::cerr << "Attempted destruction of Future before work has completed, "
+              << "terminating the program." << '\n';
+    std::terminate();
+  }
+}
+
+void ProcessGroupMPI_MOSE::AsyncWork::Future::wait() {
+  MPI_Wait(request_, MPI_STATUS_IGNORE);
+  markCompleted();
 }
 
 // ************************************************
