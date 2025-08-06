@@ -609,6 +609,7 @@ auto Engine::thread_main(const std::shared_ptr<GraphTask>& graph_task) -> void {
       }
     }
   }
+  // std::cout << "In Engine::thread_main()\n";
 }
 
 // Reentrant call will re-use the graph_task's owner thread ready_queue for
@@ -648,6 +649,7 @@ void Engine::thread_on_exception(
     const std::shared_ptr<GraphTask>& graph_task,
     const std::shared_ptr<Node>& fn,
     std::exception& e) {
+  // std::cout << "INFO:  in Engine::thread_on_exception()\n";
   graph_task->set_exception(std::current_exception(), fn);
 }
 
@@ -668,8 +670,9 @@ GraphTask::GraphTask(
       reentrant_depth_(reentrant_depth),
       exit_on_error_(exit_on_error),
       cpu_ready_queue_(std::move(cpu_ready_queue)),
-      future_result_(c10::make_intrusive<at::ivalue::Future>(
-          c10::ListType::create(c10::TensorType::get()))),
+      future_result_(
+          c10::make_intrusive<at::ivalue::Future>(
+              c10::ListType::create(c10::TensorType::get()))),
       id_(graph_task_id.fetch_add(1, std::memory_order_relaxed)) {
   thread_locals_.set_grad_mode(grad_mode);
 }
@@ -842,13 +845,15 @@ void set_device(int device) {
   // Don't use DeviceGuard here because its destructor may be called before the
   // device is reset. This is fine because the device is thread local.
   if (device != CPU_DEVICE) {
-    for (const auto i : c10::irange(static_cast<size_t>(
-             c10::DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES))) {
+    for (const auto i : c10::irange(
+             static_cast<size_t>(
+                 c10::DeviceType::COMPILE_TIME_MAX_DEVICE_TYPES))) {
       auto* impl = c10::impl::device_guard_impl_registry[i].load();
       if (impl && device < impl->deviceCount()) {
-        impl->setDevice(at::Device(
-            static_cast<c10::DeviceType>(i),
-            static_cast<c10::DeviceIndex>(device)));
+        impl->setDevice(
+            at::Device(
+                static_cast<c10::DeviceType>(i),
+                static_cast<c10::DeviceIndex>(device)));
       }
     }
   }
@@ -1110,6 +1115,8 @@ void Engine::evaluate_function(
     }
   }
 
+  // std::cout << "INFO:  In Engine::evaluate_function()\n";
+
   auto outputs = call_function(graph_task, func, inputs);
 
   auto& fn = *func;
@@ -1360,10 +1367,14 @@ auto Engine::execute(
   // Avoid a refcount bump for the Future, since we check for refcount in
   // DistEngine (see TORCH_INTERNAL_ASSERT(futureGrads.use_count() == 1)
   // in dist_engine.cpp).
+  // std::cout << "INFO:  In Engine::execute()\n";
   auto& fut = graph_task->future_result_;
   fut->wait();
   graph_task->warning_handler_.replay_warnings();
-  return fut->value().toTensorVector();
+  // std::cout << "INFO:  In Engine::execute()   ...   done\n";
+  auto fut_value = fut->value();
+  auto ret_val = fut_value.toTensorVector();
+  return ret_val;
 }
 
 void Engine::initialize_device_threads_pool() {
@@ -1408,6 +1419,7 @@ c10::intrusive_ptr<at::ivalue::Future> Engine::execute_with_graph_task(
     // that was just pushed or will be added later from other worker threads
     lock.unlock();
     thread_main(graph_task);
+    // std::cout << "In Engine::execute_with_graph_task()\n";
     TORCH_INTERNAL_ASSERT(graph_task->future_result_->completed());
     // reset the worker_device after the completion of the graph_task, this is
     // so that the initial state of the engine remains the same across every

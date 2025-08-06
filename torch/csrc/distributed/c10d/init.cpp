@@ -3469,6 +3469,7 @@ such as `dist.all_reduce(tensor, async_op=True)`.
               "get_future",
               [](::c10d::Work& work)
                   -> std::shared_ptr<jit::PythonFutureWrapper> {
+                // std::cout << "INFO:  In c10d/init.cpp:get_future()\n";
                 return std::make_shared<jit::PythonFutureWrapper>(
                     work.getFuture());
               },

@@ -10,6 +10,8 @@ namespace c10d {
 
 c10::intrusive_ptr<c10::ivalue::Future> AllReduceCommHook::runHook(
     GradBucket& bucket) {
+  // std::cout << "INFO:  In AllReduceCommHook::runHook()\n";
+
   std::vector<at::Tensor> tensors = {bucket.getBufferRef()};
   // Apply the division first to avoid overflow, especially for FP16.
   tensors[0] /= state_->getSize();

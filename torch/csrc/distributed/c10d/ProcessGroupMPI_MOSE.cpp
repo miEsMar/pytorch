@@ -114,7 +114,7 @@ void checkSameSizeAndType(
 // [SECTION] Async MPI Work related
 //-------------------------------------------------
 
-ProcessGroupMPI_MOSE::AsyncWork::AsyncWork(
+ProcessGroupMPI_MOSE::MOSEWork::MOSEWork(
     MPI_Request request,
     std::vector<at::Tensor> outputTensors,
     const char* profilingTitle,
@@ -122,20 +122,24 @@ ProcessGroupMPI_MOSE::AsyncWork::AsyncWork(
     : Work(-1, OpType::UNKNOWN, profilingTitle, inputTensors),
       outputTensors_(std::move(outputTensors)),
       request_(request),
-      future_(c10::make_intrusive<Future>(c10::TensorType::get(), &request_)) {
+      future_(
+          c10::make_intrusive<Future>(
+              c10::TensorType::get(),
+              outputTensors_,
+              request_)) {
+  // std::cout << "INFO: creating MOSEWork object..\n";
   memset(&status_, 0, sizeof(status_));
 }
 
-ProcessGroupMPI_MOSE::AsyncWork::~AsyncWork() {
-  if (request_ != MPI_REQUEST_NULL) {
-    std::cerr
-        << "Attempted destruction of AsyncWork before work has completed, "
-        << "terminating the program." << '\n';
+ProcessGroupMPI_MOSE::MOSEWork::~MOSEWork() {
+  if (!future_requested_ && request_ != MPI_REQUEST_NULL) {
+    std::cerr << "Attempted destruction of MOSEWork before work has completed, "
+              << "terminating the program." << '\n';
     std::terminate();
   }
 }
 
-bool ProcessGroupMPI_MOSE::AsyncWork::isCompleted() {
+bool ProcessGroupMPI_MOSE::MOSEWork::isCompleted() {
   if (request_ == MPI_REQUEST_NULL) {
     return true;
   }
@@ -155,24 +159,23 @@ bool ProcessGroupMPI_MOSE::AsyncWork::isCompleted() {
   return true;
 }
 
-bool ProcessGroupMPI_MOSE::AsyncWork::isSuccess() const {
+bool ProcessGroupMPI_MOSE::MOSEWork::isSuccess() const {
   if (request_ != MPI_REQUEST_NULL) {
     TORCH_CHECK(
-        false,
-        "Invalid call to AsyncWork::isSuccess before work has completed");
+        false, "Invalid call to MOSEWork::isSuccess before work has completed");
   }
 
   return status_.MPI_ERROR == MPI_SUCCESS;
 }
 
-int ProcessGroupMPI_MOSE::AsyncWork::sourceRank() const {
+int ProcessGroupMPI_MOSE::MOSEWork::sourceRank() const {
   return status_.MPI_SOURCE;
 }
 
-bool ProcessGroupMPI_MOSE::AsyncWork::wait(
+bool ProcessGroupMPI_MOSE::MOSEWork::wait(
     std::chrono::milliseconds /* unused */) {
   if (request_ == MPI_REQUEST_NULL) {
-    // AsyncWork needs to manually call profiling end callbacks if they are set,
+    // MOSEWork needs to manually call profiling end callbacks if they are set,
     // since it does not call ProcessGroup::finish().
     if (Work::recordFunctionEndCallback_) {
       Work::recordFunctionEndCallback_();
@@ -184,7 +187,7 @@ bool ProcessGroupMPI_MOSE::AsyncWork::wait(
   MPI_CHECK(MPI_Wait(&request_, &status_));
   auto ok = (status_.MPI_ERROR == MPI_SUCCESS);
 
-  // AsyncWork needs to manually call profiling end callbacks if they are set,
+  // MOSEWork needs to manually call profiling end callbacks if they are set,
   // since it does not call ProcessGroup::finish().
   if (Work::recordFunctionEndCallback_) {
     Work::recordFunctionEndCallback_();
@@ -197,22 +200,22 @@ bool ProcessGroupMPI_MOSE::AsyncWork::wait(
   }
   if (c10d::allow_inflight_collective_as_graph_input()) {
     c10d::unregister_work(
-        c10::intrusive_ptr<ProcessGroupMPI_MOSE::AsyncWork>::
+        c10::intrusive_ptr<ProcessGroupMPI_MOSE::MOSEWork>::
             unsafe_reclaim_from_nonowning(this));
   }
   // Always return true, because abort API is not implemented.
   return true;
 }
 
-void ProcessGroupMPI_MOSE::AsyncWork::abort(){TORCH_CHECK(
+void ProcessGroupMPI_MOSE::MOSEWork::abort(){TORCH_CHECK(
     false,
-    "ProcessGroupMPI_MOSE::AsyncWork::abort not implemented.")}
+    "ProcessGroupMPI_MOSE::MOSEWork::abort not implemented.")}
 
-std::vector<at::Tensor> ProcessGroupMPI_MOSE::AsyncWork::result() {
+std::vector<at::Tensor> ProcessGroupMPI_MOSE::MOSEWork::result() {
   return outputTensors_;
 }
 
-void ProcessGroupMPI_MOSE::AsyncWork::populateException() {
+void ProcessGroupMPI_MOSE::MOSEWork::populateException() {
   std::array<char, MPI_MAX_ERROR_STRING> buf{};
   int len = buf.size();
   MPI_CHECK(MPI_Error_string(status_.MPI_ERROR, buf.data(), &len));
@@ -220,22 +223,24 @@ void ProcessGroupMPI_MOSE::AsyncWork::populateException() {
       std::make_exception_ptr(std::runtime_error(std::string(buf.data(), len)));
 }
 
-c10::intrusive_ptr<at::ivalue::Future> ProcessGroupMPI_MOSE::AsyncWork::
+c10::intrusive_ptr<at::ivalue::Future> ProcessGroupMPI_MOSE::MOSEWork::
     getFuture() {
+  future_requested_ = true;
   return future_;
 }
 
-ProcessGroupMPI_MOSE::AsyncWork::Future::~Future() {
-  if (*request_ != MPI_REQUEST_NULL) {
+ProcessGroupMPI_MOSE::MOSEWork::Future::~Future() {
+  if (request_ != MPI_REQUEST_NULL) {
     std::cerr << "Attempted destruction of Future before work has completed, "
               << "terminating the program." << '\n';
     std::terminate();
   }
 }
 
-void ProcessGroupMPI_MOSE::AsyncWork::Future::wait() {
-  MPI_Wait(request_, MPI_STATUS_IGNORE);
-  markCompleted();
+void ProcessGroupMPI_MOSE::MOSEWork::Future::wait() {
+  std::cout << "INFO:  in MOSEWork::Future::wait()\n";
+  MPI_Wait(&request_, MPI_STATUS_IGNORE);
+  markCompleted(at::IValue(outputTensors_));
 }
 
 // ************************************************
@@ -305,7 +310,7 @@ c10::intrusive_ptr<ProcessGroupMPI_MOSE> ProcessGroupMPI_MOSE::
 }
 
 ProcessGroupMPI_MOSE::ProcessGroupMPI_MOSE(int rank, int size, MPI_Comm pgComm)
-    : Backend(rank, size), stop_(false), pgComm_(pgComm) {
+    : Backend(rank, size), pgComm_(pgComm) {
   if (pgComm_ == MPI_COMM_NULL) {
     TORCH_CHECK(false, "pgComm_ must not be MPI_COMM_NULL");
   }
@@ -322,11 +327,12 @@ ProcessGroupMPI_MOSE::~ProcessGroupMPI_MOSE() {
 }
 
 void ProcessGroupMPI_MOSE::destroy() {
-  stop_ = true;
+  MPI_CHECK(MPI_Finalize());
   return;
 }
 
 void ProcessGroupMPI_MOSE::abort() {
+  std::cout << "WARN:  in MPI_MOSE::abort()\n";
   destroy();
   MPI_Abort(pgComm_, EXIT_FAILURE);
 }
@@ -358,9 +364,11 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allreduce(
         &request));
   }
 
-  auto work = c10::make_intrusive<AsyncWork>(
+  std::cout << "INFO:   in MPI_MOSE::allreduce()\n";
+
+  auto work = c10::make_intrusive<MOSEWork>(
       request,
-      std::vector<at::Tensor>(),
+      tensors,
       "mpi_mose:allreduce",
       std::optional<std::vector<at::Tensor>>(tensors));
   return work;
@@ -408,8 +416,13 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
     }
   }
 
-  auto work = c10::make_intrusive<AsyncWork>(
-      request, std::vector<at::Tensor>(), "mpi_mose:allgather", std::nullopt);
+  std::cout << "INFO:   in MPI_MOSE::allgather()\n";
+
+  auto work = c10::make_intrusive<MOSEWork>(
+      request,
+      output_tensor,
+      "mpi_mose:allgather",
+      std::optional<std::vector<at::Tensor>>(inputTensors));
   return work;
 }
 
@@ -417,14 +430,16 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
 //       not returning until everyone get here.
 c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::barrier(
     const BarrierOptions& opts) {
-  // NOTE: init to REQUEST_NULL, so that any further work->wait() return
+  // NOTE: init to REQUEST_NULL, so that any further work->wait() returns
   // immediately
   MPI_Request dummy = MPI_REQUEST_NULL;
   {
     MPI_CHECK(MPI_Barrier(pgComm_));
   }
 
-  auto work = c10::make_intrusive<AsyncWork>(
+  std::cout << "INFO:   in MPI_MOSE::barrier()\n";
+
+  auto work = c10::make_intrusive<MOSEWork>(
       dummy, std::vector<at::Tensor>(), "mpi_mose:barrier", std::nullopt);
   return work;
 }
@@ -440,6 +455,8 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
 
   MPI_Request request = MPI_REQUEST_NULL;
 
+  std::cout << "INFO:   in MPI_MOSE::broadcast()\n";
+
   {
     c10::DeviceGuard guard(input_tensor.device());
     MPI_CHECK(MPI_Bcast(
@@ -450,9 +467,9 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
         pgComm_));
   }
 
-  auto work = c10::make_intrusive<AsyncWork>(
+  auto work = c10::make_intrusive<MOSEWork>(
       request,
-      std::vector<at::Tensor>(),
+      tensors,
       "mpi_mose:broadcast",
       std::optional<std::vector<at::Tensor>>(tensors));
   return work;
@@ -485,17 +502,17 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::scatter(
     checkSameSizeAndType(outputTensors[0], inputTensors[0]);
   }
 
+  std::cout << "INFO:   in MPI_MOSE::scatter()\n";
+
   auto& output_tensor = outputTensors[0];
   void* sendbuf = nullptr;
+  at::Tensor flat_tensor;
 
   MPI_Request request = MPI_REQUEST_NULL;
 
   if (rank_ == opts.rootRank) {
-    auto& input_tensors = inputTensors[0];
-    // auto& input_tensor = input_tensors[0];
-
     std::vector<at::Tensor>& input_data = inputTensors[0];
-    auto flat_tensor = newLikeFlat(input_data);
+    flat_tensor = newLikeFlat(input_data);
     sendbuf = flat_tensor.data_ptr();
 
     // copy the input tensors to the flatten large send buffer
@@ -518,11 +535,13 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::scatter(
         pgComm_));
   }
 
-  auto work = c10::make_intrusive<AsyncWork>(
+  auto input_tensors =
+      inputTensors.empty() ? std::vector<at::Tensor>() : inputTensors[0];
+  auto work = c10::make_intrusive<MOSEWork>(
       request,
-      !inputTensors.empty() ? inputTensors[0] : std::vector<at::Tensor>(),
+      outputTensors,
       "mpi_mose:scatter",
-      std::optional<std::vector<at::Tensor>>(outputTensors));
+      std::optional<std::vector<at::Tensor>>(input_tensors));
   return work;
 }
 

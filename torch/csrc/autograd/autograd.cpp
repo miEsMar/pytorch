@@ -137,6 +137,7 @@ static variable_list run_backward(
     }
   }
 
+  // std::cout << "INFO:  in autograd.cpp run_backward()\n";
   variable_list grad_inputs = Engine::get_default_engine().execute(
       roots,
       grad_outputs,

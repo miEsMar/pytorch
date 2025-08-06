@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=112
 #SBATCH --account=bsc85
-#SBATCH --qos=gp_bsccs
+#SBATCH --qos=gp_debug
 #SBATCH --job-name=pytorch_make
 #SBATCH --error=err_cpu.txt
 #SBATCH --output=out_cpu.txt

@@ -29,6 +29,9 @@ class PyProcessGroup : public ProcessGroup {
       // 1. We have to >MANUALLY< unwrap the PyFutureWrapper and
       // 2. The python name is get_future
       pybind11::gil_scoped_acquire gil;
+
+      // std::cout << "INFO:  In PyProcessGroup::getFuture()\n";
+
       auto override =
           pybind11::get_override(static_cast<const Work*>(this), "get_future");
 

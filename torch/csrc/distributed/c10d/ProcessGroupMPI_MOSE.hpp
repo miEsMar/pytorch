@@ -24,26 +24,32 @@ constexpr const char* MPI_MOSE_BACKEND_NAME = "mpi_mose";
 
 class TORCH_API ProcessGroupMPI_MOSE : public Backend {
  public:
-  class AsyncWork : public Work {
+  class MOSEWork : public Work {
    public:
-    AsyncWork(
+    MOSEWork(
         MPI_Request request,
         std::vector<at::Tensor> outputTensors,
         const char* profilingTitle = nullptr,
         const std::optional<std::vector<at::Tensor>>& inputTensors =
             std::nullopt);
 
-    ~AsyncWork() override;
+    ~MOSEWork() override;
 
     struct Future : public at::ivalue::Future {
-      explicit Future(const at::TypePtr& type, MPI_Request* request)
-          : at::ivalue::Future(type, {c10::kCPU}), request_(request) {}
+      explicit Future(
+          const at::TypePtr& type,
+          const std::vector<at::Tensor> outputTensors,
+          MPI_Request request)
+          : at::ivalue::Future(type),
+            outputTensors_(std::move(outputTensors)),
+            request_(request) {}
       ~Future() override;
 
       void wait() override;
 
      private:
-      MPI_Request* request_ = nullptr;
+      std::vector<at::Tensor> outputTensors_;
+      MPI_Request request_;
     };
 
     bool isCompleted() override;
@@ -59,10 +65,11 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
     void populateException();
 
    private:
-    c10::intrusive_ptr<Future> future_;
-    const std::vector<at::Tensor> outputTensors_;
+    std::vector<at::Tensor> outputTensors_;
     MPI_Request request_;
     MPI_Status status_{};
+    bool future_requested_ = false;
+    c10::intrusive_ptr<Future> future_;
   };
 
   // Constructor will spawn up the worker thread loop
@@ -104,8 +111,6 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
  protected:
   // Helper function that is called by the destructor
   void destroy();
-
-  bool stop_;
 
   // Global states
   static void mpiExit();

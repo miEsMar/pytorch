@@ -874,15 +874,13 @@ struct EnumHolder;
 } // namespace ivalue
 
 // Future
-struct C10_EXPORT ivalue::Future final : c10::intrusive_ptr_target {
- private:
-  // Keep this private in order to force users to go through make_intrusive and
-  // thus prevent creating a Future that's not held by an intrusive_ptr.
+struct C10_EXPORT ivalue::Future : c10::intrusive_ptr_target {
   explicit Future(TypePtr type, std::vector<c10::Device> devices = {})
       : type_(std::move(type)),
         impl_(getTypeOfDevices(devices)),
         devices_(sortAndDeduplicateDevices(impl_, std::move(devices))) {}
 
+ private:
   friend c10::intrusive_ptr<Future>;
 
   struct FutureCallback {
@@ -929,7 +927,7 @@ struct C10_EXPORT ivalue::Future final : c10::intrusive_ptr_target {
   /**
    * Wait on the future until it completes.
    */
-  void wait() {
+  virtual void wait() {
     std::unique_lock<std::mutex> lock(mutex_);
     finished_cv_.wait(lock, [&]() -> bool { return completed_; });
     synchronizeWithCurrentStreams();
@@ -1049,8 +1047,10 @@ struct C10_EXPORT ivalue::Future final : c10::intrusive_ptr_target {
     std::unique_lock<std::mutex> lock(mutex_);
     AT_ASSERT(completed());
     if (eptr_) {
+      std::cout << "NOTE:  exception ptr is not NULL!!\n";
       std::rethrow_exception(eptr_);
     }
+    // std::cout << "INFO:  in Future::value()\n";
     return value_;
   }
 
@@ -1263,6 +1263,8 @@ struct C10_EXPORT ivalue::Future final : c10::intrusive_ptr_target {
     TORCH_INTERNAL_ASSERT(!completed(), "Future is already marked completed");
     completed_ = true;
     eptr_ = std::move(eptr);
+
+    std::cout << "WARN:  setting exception on Future!\n";
 
     std::vector<FutureCallback> cbs;
     cbs.swap(callbacks_);
@@ -1894,6 +1896,7 @@ c10::List<Elem> generic_to(IValue ivalue, _fake_type<c10::List<Elem>>) {
 template <typename T>
 static T createVectorLikeFromList(const c10::detail::ListImpl* impl) {
   T result;
+  // std::cout << "INFO:  list size = " << impl->list.size() << "\n";
   result.reserve(impl->list.size());
   for (const auto& i : impl->list) {
     result.push_back(i.to<typename T::value_type>());
@@ -1909,6 +1912,7 @@ static std::vector<T> createVectorFromList(const c10::detail::ListImpl* impl) {
 template <typename T>
 std::vector<T> createVectorFromList(const c10::List<T>& impl) {
   std::vector<T> result;
+  // std::cout << "INFO:  impl size = " << impl.size() << "\n";
   result.reserve(impl.size());
   for (size_t i = 0, N = impl.size(); i < N; ++i) {
     result.push_back(impl[i]);
