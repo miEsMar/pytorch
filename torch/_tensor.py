@@ -612,6 +612,8 @@ class Tensor(torch._C.TensorBase):
                 provided, the gradient is accumulated into all the leaf Tensors that were
                 used to compute the :attr:`tensors`. Defaults to ``None``.
         """
+
+        # print("In _tensor.backward()")
         if has_torch_function_unary(self):
             return handle_torch_function(
                 Tensor.backward,

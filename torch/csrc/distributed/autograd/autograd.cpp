@@ -14,6 +14,7 @@ void backward(
   RECORD_FUNCTION(
       kDistAutogradBackwardProfilingKey, std::vector<c10::IValue>());
   try {
+    // std::cout << "INFO:  in autograd.cpp  backward()\n";
     DistEngine::getInstance().execute(context_id, roots, retain_graph);
   } catch (std::exception& e) {
     // FIXME: crashes if exception type is not RuntimeError

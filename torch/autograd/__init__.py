@@ -361,6 +361,9 @@ def backward(
         accumulate_grad=True,
     )
 
+    return
+
+
 
 def grad(
     outputs: _TensorOrTensorsOrGradEdge,

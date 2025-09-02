@@ -42,6 +42,20 @@ struct WorkEntry {
   // Not copy assignable
   WorkEntry& operator=(const WorkEntry&) = delete;
 
+  //
+  // To shut
+  //  "Class 'WorkEntry' defines a copy constructor and a copy assignment
+  //  operator but does not define a destructor, a move constructor or a move
+  //  assignment operator"
+  // error off.
+#if 1
+  // NOTE: we might want to free srcRank
+  ~WorkEntry() = default;
+
+  WorkEntry(WorkEntry&&) noexcept = delete; // move constructor
+  WorkEntry& operator=(WorkEntry&&) noexcept = delete; // move assignment
+#endif
+
   // For input and output tensors (in-place), we will always use src
   std::vector<at::Tensor> src;
 
@@ -88,8 +102,9 @@ class TORCH_API ProcessGroupMPI : public Backend {
             std::nullopt)
         : Work(-1, OpType::UNKNOWN, profilingTitle, inputTensors),
           outputTensors_(std::move(outputTensors)),
-          future_(c10::make_intrusive<at::ivalue::Future>(
-              c10::ListType::create(c10::TensorType::get()))) {}
+          future_(
+              c10::make_intrusive<at::ivalue::Future>(
+                  c10::ListType::create(c10::TensorType::get()))) {}
 
     std::vector<at::Tensor> result() override;
 

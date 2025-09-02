@@ -188,24 +188,23 @@ Reducer::Reducer(
 #endif
       // Hook to execute after the gradient accumulator has executed.
       hooks_.emplace_back(
-          grad_accumulator->add_post_hook(std::make_unique<
-                                          torch::autograd::utils::
-                                              LambdaPostHook>(
-              [this, variable_index](
-                  const torch::autograd::variable_list& outputs,
-                  const torch::autograd::variable_list& /* unused */) {
+          grad_accumulator->add_post_hook(
+              std::make_unique<torch::autograd::utils::LambdaPostHook>(
+                  [this, variable_index](
+                      const torch::autograd::variable_list& outputs,
+                      const torch::autograd::variable_list& /* unused */) {
 #ifndef _WIN32
-                this->rpc_context_.set(
-                    ThreadLocalDistAutogradContext::getContextPtr());
+                    this->rpc_context_.set(
+                        ThreadLocalDistAutogradContext::getContextPtr());
 #endif
-                this->autograd_hook(variable_index);
-                return outputs;
-              },
-              [this](torch::autograd::CompiledNodeArgs& args) {
-                TORCH_CHECK(
-                    this->use_python_reducer_,
-                    "Compiled autograd is not compatible with C++ DDP Reducer, please use torch._dynamo.config.optimize_ddp=\"python_reducer\".");
-              })),
+                    this->autograd_hook(variable_index);
+                    return outputs;
+                  },
+                  [this](torch::autograd::CompiledNodeArgs& args) {
+                    TORCH_CHECK(
+                      this->use_python_reducer_,
+                      "Compiled autograd is not compatible with C++ DDP Reducer, please use torch._dynamo.config.optimize_ddp=\"python_reducer\".");
+                  })),
           grad_accumulator);
 
       // Map raw function pointer to parameter index.
@@ -686,6 +685,8 @@ void Reducer::autograd_hook(size_t index) {
     return;
   }
 
+  // std::cout << "[MEM]:  In Reducer::autograd_hook()\n";
+
   grad_ready_order_indices_.push_back(static_cast<int64_t>(index));
 
   // If `find_unused_parameters_` is true there may be model parameters that
@@ -939,6 +940,7 @@ void Reducer::mark_variable_ready(size_t variable_index) {
 
 c10::intrusive_ptr<c10::ivalue::Future> Reducer::run_comm_hook(
     GradBucket& grad_bucket) {
+  // std::cout << "[MEM]:  in Reducer::run_comm_hook()\n";
   if (comm_hook_ == nullptr) {
     return run_allreduce_hook(grad_bucket);
   } else {
@@ -1027,6 +1029,8 @@ bool Reducer::should_skip_all_reduce_bucket(Bucket& bucket) {
 // Called when the bucket at the specified index is ready to be reduced.
 void Reducer::mark_bucket_ready(size_t bucket_index) {
   TORCH_INTERNAL_ASSERT(bucket_index >= next_bucket_);
+
+  // std::cout << "[MEM]:  In Reducer::mark_bucket_ready()\n";
 
   // Buckets are reduced in sequence. Ignore this bucket if
   // it's not its turn to be reduced.
@@ -2331,7 +2335,10 @@ void verify_params_across_processes(
 
   metadata = metadata.to(params[0].device());
   std::vector<at::Tensor> vec{metadata};
+
+  // std::cout << "INFO: broadcasting metadata in reducer.cpp\n";
   process_group->broadcast(vec)->wait();
+  // std::cout << "INFO: broadcasting metadata in reducer.cpp ... done\n";
 
   // Technically, process 0 doesn't need to double-check metadata, because it
   // was the source.  But no harm keeping work aligned.

@@ -389,3 +389,14 @@ android/pytorch_android_torchvision/.cxx
 
 # Claude Code local configuration
 CLAUDE.local.md
+
+
+# CMake output
+CMakeCache.txt
+CMakeFiles/
+
+# Custom
+err_cpu.txt
+out_cpu.txt
+compile_flags.txt
+.clangd
