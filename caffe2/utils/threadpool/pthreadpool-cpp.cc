@@ -1,8 +1,9 @@
+#include <c10/util/Exception.h>
 #include <caffe2/utils/threadpool/pthreadpool-cpp.h>
 #include <caffe2/utils/threadpool/thread_pool_guard.h>
-#include <c10/util/Exception.h>
 
 #include <atomic>
+#include <iostream>
 
 namespace {
 // After fork, the child process inherits the data-structures of the parent
@@ -59,7 +60,8 @@ void PThreadPool::run(
 
   std::lock_guard<std::mutex> lock{mutex_};
 
-  TORCH_INTERNAL_ASSERT(!caffe2::_NoPThreadPoolGuard::is_enabled(), "Inside a threadpool guard!");
+  TORCH_INTERNAL_ASSERT(
+      !caffe2::_NoPThreadPoolGuard::is_enabled(), "Inside a threadpool guard!");
   TORCH_INTERNAL_ASSERT(threadpool_.get(), "Invalid threadpool!");
 
   struct Context final {
@@ -83,13 +85,11 @@ void PThreadPool::run(
 }
 
 PThreadPool* pthreadpool(size_t thread_count) {
-  static auto threadpool =
-    std::make_unique<PThreadPool>(thread_count);
+  static auto threadpool = std::make_unique<PThreadPool>(thread_count);
 #if !(defined(WIN32))
   static std::once_flag flag;
-  std::call_once(flag, []() {
-    pthread_atfork(nullptr, nullptr, child_atfork);
-  });
+  std::call_once(
+      flag, []() { pthread_atfork(nullptr, nullptr, child_atfork); });
 #endif
   if (C10_UNLIKELY(leak_corrupted_threadpool)) {
     leak_corrupted_threadpool = false;
@@ -106,7 +106,10 @@ PThreadPool* pthreadpool(size_t thread_count) {
 size_t getDefaultNumThreads();
 
 PThreadPool* pthreadpool() {
-  return pthreadpool(getDefaultNumThreads());
+  // [MEM]:   are we passing from here?
+  size_t n_threads = getDefaultNumThreads();
+  std::cout << "[MEM]:   n. of pthreadpool threads = " << n_threads << '\n';
+  return pthreadpool(n_threads);
 }
 
 pthreadpool_t pthreadpool_() {

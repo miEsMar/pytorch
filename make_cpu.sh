@@ -20,6 +20,8 @@ export CC=gcc
 export DEBUG=1
 export MAX_JOBS=112
 
+export USE_OPENMP=0 # this ensures ATEN_THREADING=NATIVE
+
 export USE_CUDA=0
 export USE_CUDNN=0
 export USE_CUSPARSELT=0
