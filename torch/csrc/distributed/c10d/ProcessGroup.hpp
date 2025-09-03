@@ -221,7 +221,7 @@ class TORCH_API ProcessGroup : public torch::CustomClassHolder {
   virtual c10::intrusive_ptr<Work> allreduce(
       std::vector<at::Tensor>& tensors,
       const AllreduceOptions& opts = AllreduceOptions()) {
-    std::cout << "WARN:   in PG_base::allreduce()\n";
+    // std::cout << "[MEM]:  in PG_base::allreduce()\n";
     static auto op =
         c10::Dispatcher::singleton()
             .findSchemaOrThrow("c10d::allreduce_", "")
