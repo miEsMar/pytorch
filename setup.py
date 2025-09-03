@@ -285,7 +285,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, ClassVar, IO
 
-import setuptools.command.bdist_wheel
+
+_support_bdist_wheel: bool = False
+try:
+    import setuptools.command.bdist_wheel
+    _support_bdist_wheel = True
+except ImportError:
+    pass
 import setuptools.command.build_ext
 import setuptools.command.sdist
 import setuptools.errors
@@ -1311,29 +1317,30 @@ class concat_license_files:
         self.f1.write_text(self.bsd_text, encoding="utf-8")
 
 
-# Need to create the proper LICENSE.txt for the wheel
-class bdist_wheel(setuptools.command.bdist_wheel.bdist_wheel):
-    def run(self) -> None:
-        with concat_license_files(include_files=True):
-            super().run()
+if (_support_bdist_wheel):
+    # Need to create the proper LICENSE.txt for the wheel
+    class bdist_wheel(setuptools.command.bdist_wheel.bdist_wheel):
+        def run(self) -> None:
+            with concat_license_files(include_files=True):
+                super().run()
 
-    def write_wheelfile(self, *args: Any, **kwargs: Any) -> None:
-        super().write_wheelfile(*args, **kwargs)
+        def write_wheelfile(self, *args: Any, **kwargs: Any) -> None:
+            super().write_wheelfile(*args, **kwargs)
 
-        if BUILD_LIBTORCH_WHL:
-            assert self.bdist_dir is not None
-            bdist_dir = Path(self.bdist_dir)
-            # Remove extraneneous files in the libtorch wheel
-            for file in itertools.chain(
-                bdist_dir.rglob("*.a"),
-                bdist_dir.rglob("*.so"),
-            ):
-                if (bdist_dir / file.name).is_file():
+            if BUILD_LIBTORCH_WHL:
+                assert self.bdist_dir is not None
+                bdist_dir = Path(self.bdist_dir)
+                # Remove extraneneous files in the libtorch wheel
+                for file in itertools.chain(
+                    bdist_dir.rglob("*.a"),
+                    bdist_dir.rglob("*.so"),
+                ):
+                    if (bdist_dir / file.name).is_file():
+                        file.unlink()
+                for file in bdist_dir.rglob("*.py"):
                     file.unlink()
-            for file in bdist_dir.rglob("*.py"):
-                file.unlink()
-            # need an __init__.py file otherwise we wouldn't have a package
-            (bdist_dir / "torch" / "__init__.py").touch()
+                # need an __init__.py file otherwise we wouldn't have a package
+                (bdist_dir / "torch" / "__init__.py").touch()
 
 
 class clean(Command):
@@ -1526,12 +1533,19 @@ def configure_extension_build() -> tuple[
     if cmake_cache_vars["BUILD_FUNCTORCH"]:
         ext_modules.append(Extension(name="functorch._C", sources=[]))
 
-    cmdclass = {
-        "bdist_wheel": bdist_wheel,
-        "build_ext": build_ext,
-        "clean": clean,
-        "sdist": sdist,
-    }
+    if (_support_bdist_wheel):
+        cmdclass = {
+            "bdist_wheel": bdist_wheel,
+            "build_ext": build_ext,
+            "clean": clean,
+            "sdist": sdist,
+        }
+    else:
+        cmdclass = {
+            "build_ext": build_ext,
+            "clean": clean,
+            "sdist": sdist,
+        }
 
     entry_points = {
         "console_scripts": [
