@@ -73,6 +73,7 @@ from torch._C._distributed_c10d import (
 
 # Backend-specific components that may not be available
 _MPI_AVAILABLE = False
+_MPI_MOSE_AVAILABLE = False
 _NCCL_AVAILABLE = False
 _GLOO_AVAILABLE = False
 _UCC_AVAILABLE = False
@@ -105,6 +106,14 @@ try:
     _MPI_AVAILABLE = True
 except ImportError:
     from torch.distributed._C_stubs import ProcessGroupMPI
+
+# MPI_MOSE backend
+try:
+    from torch._C._distributed_c10d import ProcessGroupMPI_MOSE
+
+    _MPI_MOSE_AVAILABLE = True
+except ImportError:
+    from torch.distributed._C_stubs import ProcessGroupMPI_MOSE
 
 # NCCL backend
 try:
@@ -215,6 +224,7 @@ __all__ = [
     "ScatterOptions",
     # Process group implementations
     "ProcessGroupMPI",
+    "ProcessGroupMPI_MOSE",
     "ProcessGroupNCCL",
     "ProcessGroupGloo",
     "ProcessGroupUCC",
@@ -222,6 +232,7 @@ __all__ = [
     "_ProcessGroupWrapper",
     # Availability flags
     "_MPI_AVAILABLE",
+    "_MPI_MOSE_AVAILABLE",
     "_NCCL_AVAILABLE",
     "_GLOO_AVAILABLE",
     "_UCC_AVAILABLE",

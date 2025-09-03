@@ -181,7 +181,7 @@ if _MPI_AVAILABLE:
     __all__ += ["ProcessGroupMPI"]
 
 if _MPI_MOSE_AVAILABLE:
-    ProcessGroupMPI.__module__ = "torch.distributed.distributed_c10d"
+    ProcessGroupMPI_MOSE.__module__ = "torch.distributed.distributed_c10d"
     __all__ += ["ProcessGroupMPI_MOSE"]
 
 if _NCCL_AVAILABLE:

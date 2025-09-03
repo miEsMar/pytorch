@@ -40,6 +40,13 @@ class ProcessGroupMPI:
         pass
 
 
+class ProcessGroupMPI_MOSE:
+    """Stub ProcessGroupMPI_MOSE for non-MPI builds."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
 class ProcessGroupNCCL:
     """Stub ProcessGroupNCCL for non-NCCL builds."""
 
