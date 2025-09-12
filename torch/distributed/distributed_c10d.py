@@ -2906,6 +2906,7 @@ def all_reduce(tensor, op=ReduceOp.SUM, group=None, async_op=False):
         else:
             return None
 
+    print("[MEM]:  in distributed_c10d.py  all_reduce()")
     work = group.allreduce([tensor], opts)
 
     if async_op:

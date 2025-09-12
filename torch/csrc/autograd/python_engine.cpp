@@ -369,7 +369,9 @@ static PyObject* THPEngine_run_backward(
   {
     pybind11::gil_scoped_release no_gil;
     auto& engine = python::PythonEngine::get_python_engine();
-    // std::cout << "INFO:  in python_engine.cpp  THPEngine_run_backward()\n";
+
+    std::cout << "[MEM]:  in THPEngine_run_backward()\n";
+
     outputs = engine.execute(
         roots, grads, keep_graph, create_graph, accumulate_grad, output_edges);
   }

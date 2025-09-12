@@ -1393,6 +1393,8 @@ c10::intrusive_ptr<at::ivalue::Future> Engine::execute_with_graph_task(
     const std::shared_ptr<GraphTask>& graph_task,
     std::shared_ptr<Node> graph_root,
     InputBuffer&& input_buffer) {
+  // c
+  std::cout << "[MEM]:  in execute_with_graph_task()\n";
   initialize_device_threads_pool();
   // Lock mutex for GraphTask.
   std::unique_lock<std::mutex> lock(graph_task->mutex_);
@@ -1576,6 +1578,8 @@ auto Engine::start_device_threads() -> void {
   }
 
   // If there are no device except cpu, no need to create worker threads
+  std::cout << "[MEM]:  in start_device_threads() num_devices == "
+            << (size_t)num_devices << '\n';
   if (num_devices == 0) {
     return;
   }
@@ -1617,6 +1621,8 @@ void Engine::add_thread_pool_task(const std::weak_ptr<GraphTask>& graph_task) {
   // Don't need to be holding the lock while actually creating the thread
   lck.unlock();
   if (create_thread) {
+    std::cout
+        << "[MEM]:  adding a new thread to pool in add_thread_pool_task()\n";
     // If we're creating a new thread, forking is not allowed anymore
     track_bad_autograd_forks();
     std::thread t(&Engine::reentrant_thread_init, this);

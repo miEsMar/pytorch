@@ -351,6 +351,7 @@ def backward(
     # The reason we repeat the same comment below is that
     # some Python versions print out the first line of a multi-line function
     # calls in the traceback and some print out the last line
+    # print("[MEM]:  before _engine_run_backward()")
     _engine_run_backward(
         tensors,
         grad_tensors_,
