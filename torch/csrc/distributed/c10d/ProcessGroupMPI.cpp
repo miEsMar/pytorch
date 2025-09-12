@@ -26,6 +26,7 @@
 
 //
 
+#define MPI_NO_WORKER_THREAD
 // #define MPI_USE_DIRECT_NB_CALLS
 
 //
@@ -351,11 +352,19 @@ ProcessGroupMPI::ProcessGroupMPI(int rank, int size, MPI_Comm pgComm)
   }
 #else
   if (0 == rank) {
-    fprintf(
-        stdout, "\nNOTE:  Using default Torch MPI backend implementation.\n");
+    fprintf(stdout, "\nNOTE:  Using default Torch MPI backend implementation.");
+  }
+#ifdef MPI_NO_WORKER_THREAD
+  if (0 == rank) {
+    fprintf(stdout, " NO WORKER THREAD!!\n");
+  }
+#else
+  if (0 == rank) {
+    putc('\n', stdout);
   }
   // Start the worker thread accepting MPI calls
   workerThread_ = std::thread(&ProcessGroupMPI::runLoop, this);
+#endif
 #endif
 
   init();
@@ -366,12 +375,15 @@ ProcessGroupMPI::~ProcessGroupMPI() {
 }
 
 void ProcessGroupMPI::destroy() {
+#ifndef MPI_NO_WORKER_THREAD
   std::unique_lock<std::mutex> lock(pgMutex_);
   queueConsumeCV_.wait(lock, [&] { return queue_.empty(); });
+#endif
 
   // Queue is empty, signal stop
   stop_ = true;
 
+#ifndef MPI_NO_WORKER_THREAD
   // Release lock to allow threads to terminate
   lock.unlock();
   queueProduceCV_.notify_all();
@@ -380,6 +392,7 @@ void ProcessGroupMPI::destroy() {
   if (workerThread_.joinable()) {
     workerThread_.join();
   }
+#endif
   return;
 }
 
@@ -390,6 +403,7 @@ void ProcessGroupMPI::abort() {
 
 //
 
+#ifndef MPI_NO_WORKER_THREAD
 void ProcessGroupMPI::runLoop() {
   std::unique_lock<std::mutex> lock(pgMutex_);
 
@@ -419,6 +433,7 @@ void ProcessGroupMPI::runLoop() {
     lock.lock();
   }
 }
+#endif
 
 c10::intrusive_ptr<Work> ProcessGroupMPI::enqueue(
     std::unique_ptr<WorkEntry> entry,
@@ -426,10 +441,19 @@ c10::intrusive_ptr<Work> ProcessGroupMPI::enqueue(
     const std::optional<std::vector<at::Tensor>>& inputTensors) {
   auto work =
       c10::make_intrusive<WorkMPI>(entry->dst, profilingTitle, inputTensors);
+#ifndef MPI_NO_WORKER_THREAD
   std::unique_lock<std::mutex> lock(pgMutex_);
   queue_.emplace_back(std::move(entry), work);
   lock.unlock();
   queueProduceCV_.notify_one();
+#else
+  try {
+    entry->run(entry);
+    work->finishWorkMPI();
+  } catch (...) {
+    work->finishWorkMPIError(std::current_exception());
+  }
+#endif
   return work;
 }
 
@@ -788,7 +812,7 @@ c10::intrusive_ptr<Work> ProcessGroupMPI::reduce_scatter(
         for (const auto i : c10::irange(entry->src.size())) {
           flatInputTensor[static_cast<int64_t>(i)].copy_(entry->src[i]);
         }
-        int recvcount = flatInputTensor.numel() / size_;
+        int recvcount = static_cast<int>(flatInputTensor.numel()) / size_;
 
         c10::DeviceGuard guard(data.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
