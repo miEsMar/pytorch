@@ -129,7 +129,7 @@ ProcessGroupMPI_MOSE::MOSEWork::MOSEWork(
           c10::make_intrusive<MOSEFuture>(
               c10::TensorType::get(),
               outputTensors_,
-              &request_)) {
+              request_)) {
   memset(&status_, 0, sizeof(status_));
 }
 
@@ -232,7 +232,7 @@ c10::intrusive_ptr<at::ivalue::Future> ProcessGroupMPI_MOSE::MOSEWork::
 }
 
 ProcessGroupMPI_MOSE::MOSEWork::MOSEFuture::~MOSEFuture() {
-  if (*request_ != MPI_REQUEST_NULL) {
+  if (request_ != MPI_REQUEST_NULL) {
     std::cerr
         << "WARNING: Attempted destruction of MOSEFuture before MOSEWork has completed. "
 #if 1
@@ -249,7 +249,7 @@ void ProcessGroupMPI_MOSE::MOSEWork::MOSEFuture::wait() {
 #if __mpi_mose_leave_traces()
   std::cout << "[MEM]:  in MOSEWork::MOSEFuture::wait()\n";
 #endif
-  MPI_Wait(request_, MPI_STATUS_IGNORE);
+  MPI_Wait(&request_, MPI_STATUS_IGNORE);
   markCompleted(at::IValue(outputTensors_));
   return;
 }

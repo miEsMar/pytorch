@@ -39,7 +39,7 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
       explicit MOSEFuture(
           const at::TypePtr& type,
           const std::vector<at::Tensor> outputTensors,
-          MPI_Request* request)
+          MPI_Request request)
           : at::ivalue::Future(type),
             outputTensors_(std::move(outputTensors)),
             request_(request) {}
@@ -49,7 +49,7 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
 
      private:
       std::vector<at::Tensor> outputTensors_;
-      MPI_Request* request_;
+      MPI_Request request_;
     };
 
     bool isCompleted() override;
