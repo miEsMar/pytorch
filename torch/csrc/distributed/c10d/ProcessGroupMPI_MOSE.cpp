@@ -126,10 +126,10 @@ ProcessGroupMPI_MOSE::MOSEWork::MOSEWork(
       outputTensors_(std::move(outputTensors)),
       request_(request),
       future_(
-          c10::make_intrusive<Future>(
+          c10::make_intrusive<MOSEFuture>(
               c10::TensorType::get(),
               outputTensors_,
-              request_)) {
+              &request_)) {
   memset(&status_, 0, sizeof(status_));
 }
 
@@ -209,9 +209,9 @@ bool ProcessGroupMPI_MOSE::MOSEWork::wait(
   return true;
 }
 
-void ProcessGroupMPI_MOSE::MOSEWork::abort(){TORCH_CHECK(
-    false,
-    "ProcessGroupMPI_MOSE::MOSEWork::abort not implemented.")}
+void ProcessGroupMPI_MOSE::MOSEWork::abort() {
+  TORCH_CHECK(false, "ProcessGroupMPI_MOSE::MOSEWork::abort not implemented.");
+}
 
 std::vector<at::Tensor> ProcessGroupMPI_MOSE::MOSEWork::result() {
   return outputTensors_;
@@ -231,20 +231,27 @@ c10::intrusive_ptr<at::ivalue::Future> ProcessGroupMPI_MOSE::MOSEWork::
   return future_;
 }
 
-ProcessGroupMPI_MOSE::MOSEWork::Future::~Future() {
-  if (request_ != MPI_REQUEST_NULL) {
-    std::cerr << "Attempted destruction of Future before work has completed, "
-              << "terminating the program." << '\n';
+ProcessGroupMPI_MOSE::MOSEWork::MOSEFuture::~MOSEFuture() {
+  if (*request_ != MPI_REQUEST_NULL) {
+    std::cerr
+        << "WARNING: Attempted destruction of MOSEFuture before MOSEWork has completed. "
+#if 1
+        << "Forcefully waiting on MPI request!\n";
+    this->wait();
+#else
+        << "Terminating the program.\n";
     std::terminate();
+#endif
   }
 }
 
-void ProcessGroupMPI_MOSE::MOSEWork::Future::wait() {
+void ProcessGroupMPI_MOSE::MOSEWork::MOSEFuture::wait() {
 #if __mpi_mose_leave_traces()
-  std::cout << "[MEM]:  in MOSEWork::Future::wait()\n";
+  std::cout << "[MEM]:  in MOSEWork::MOSEFuture::wait()\n";
 #endif
-  MPI_Wait(&request_, MPI_STATUS_IGNORE);
+  MPI_Wait(request_, MPI_STATUS_IGNORE);
   markCompleted(at::IValue(outputTensors_));
+  return;
 }
 
 // ************************************************

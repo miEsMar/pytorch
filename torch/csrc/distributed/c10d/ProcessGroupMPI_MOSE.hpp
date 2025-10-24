@@ -35,21 +35,21 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
 
     ~MOSEWork() override;
 
-    struct Future : public at::ivalue::Future {
-      explicit Future(
+    struct MOSEFuture : public at::ivalue::Future {
+      explicit MOSEFuture(
           const at::TypePtr& type,
           const std::vector<at::Tensor> outputTensors,
-          MPI_Request request)
+          MPI_Request* request)
           : at::ivalue::Future(type),
             outputTensors_(std::move(outputTensors)),
             request_(request) {}
-      ~Future() override;
+      ~MOSEFuture() override;
 
       void wait() override;
 
      private:
       std::vector<at::Tensor> outputTensors_;
-      MPI_Request request_;
+      MPI_Request* request_;
     };
 
     bool isCompleted() override;
@@ -69,7 +69,7 @@ class TORCH_API ProcessGroupMPI_MOSE : public Backend {
     MPI_Request request_;
     MPI_Status status_{};
     bool future_requested_ = false;
-    c10::intrusive_ptr<Future> future_;
+    c10::intrusive_ptr<MOSEFuture> future_;
   };
 
   // Constructor will spawn up the worker thread loop
