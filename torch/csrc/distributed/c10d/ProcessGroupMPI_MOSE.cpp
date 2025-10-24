@@ -20,6 +20,9 @@
 
 #include "mose.h"
 
+#define __mpi_mose_leave_traces() 1
+#define __mpi_mose_prefer_nb_calls() 1
+
 //
 
 #define MPI_CHECK(cmd)                                                   \
@@ -127,7 +130,6 @@ ProcessGroupMPI_MOSE::MOSEWork::MOSEWork(
               c10::TensorType::get(),
               outputTensors_,
               request_)) {
-  // std::cout << "INFO: creating MOSEWork object..\n";
   memset(&status_, 0, sizeof(status_));
 }
 
@@ -238,7 +240,9 @@ ProcessGroupMPI_MOSE::MOSEWork::Future::~Future() {
 }
 
 void ProcessGroupMPI_MOSE::MOSEWork::Future::wait() {
-  std::cout << "INFO:  in MOSEWork::Future::wait()\n";
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:  in MOSEWork::Future::wait()\n";
+#endif
   MPI_Wait(&request_, MPI_STATUS_IGNORE);
   markCompleted(at::IValue(outputTensors_));
 }
@@ -367,8 +371,9 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allreduce(
         pgComm_,
         &request));
   }
-
-  std::cout << "INFO:   in MPI_MOSE::allreduce()\n";
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:   in MPI_MOSE::allreduce()\n";
+#endif
 
   auto work = c10::make_intrusive<MOSEWork>(
       request,
@@ -377,6 +382,10 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allreduce(
       std::optional<std::vector<at::Tensor>>(tensors));
   return work;
 }
+
+//----------------------------------------------------
+// [SECTION]: Allgather
+//----------------------------------------------------
 
 c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
     std::vector<std::vector<at::Tensor>>& outputTensors,
@@ -390,7 +399,11 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
         "MPI process group only supports a single "
         "tensor op");
   }
-  if (static_cast<size_t>(size_) != outputTensors[0].size()) {
+
+  at::Tensor& input_tensor = inputTensors[0];
+  std::vector<at::Tensor>& output_tensor = outputTensors[0];
+
+  if (static_cast<size_t>(size_) != output_tensor.size()) {
     TORCH_CHECK(
         false,
         "All gather: number of output tensors should equal "
@@ -398,13 +411,14 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
   }
   checkSameSizeAndType(inputTensors[0], outputTensors[0]);
 
-  auto& input_tensor = inputTensors[0];
-  auto& output_tensor = outputTensors[0];
-  auto flat_out_vec = newLikeFlat(output_tensor);
-
   MPI_Request request = MPI_REQUEST_NULL;
 
+  // NOTE: Here we cannot really use real NB semantics
+  //       since output data is being collected into a temporary
+  //       contiguous memory chunk and copied back to single tensors.
   {
+    auto flat_out_vec = newLikeFlat(output_tensor);
+
     c10::DeviceGuard guard(input_tensor.device());
     MPI_CHECK(MPI_Allgather(
         input_tensor.data_ptr(),
@@ -415,12 +429,17 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
         mpiDatatype.at(input_tensor.scalar_type()),
         pgComm_));
 
+    // Here is the copy back. We should understand if we can convert the output
+    // from std::vector<std::vector<at::Tensor>> onto a std::vector<at::Tensor>
+    // as the input, where each tensor in the vector hold the contiguous chunk
+    // of memory.
     for (const auto i : c10::irange(output_tensor.size())) {
       output_tensor[i].copy_(flat_out_vec[static_cast<int64_t>(i)]);
     }
   }
-
-  std::cout << "INFO:   in MPI_MOSE::allgather()\n";
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:   in MPI_MOSE::allgather()\n";
+#endif
 
   auto work = c10::make_intrusive<MOSEWork>(
       request,
@@ -430,23 +449,32 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::allgather(
   return work;
 }
 
+//----------------------------------------------------
+// [SECTION]: barrier
+//----------------------------------------------------
+
 // NOTE: this barrier() implementation actually respect MPI semantics,
 //       not returning until everyone get here.
 c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::barrier(
     const BarrierOptions& opts) {
   // NOTE: init to REQUEST_NULL, so that any further work->wait() returns
   // immediately
-  MPI_Request dummy = MPI_REQUEST_NULL;
+  MPI_Request req = MPI_REQUEST_NULL;
   {
     MPI_CHECK(MPI_Barrier(pgComm_));
   }
-
-  std::cout << "INFO:   in MPI_MOSE::barrier()\n";
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:   in MPI_MOSE::barrier()\n";
+#endif
 
   auto work = c10::make_intrusive<MOSEWork>(
-      dummy, std::vector<at::Tensor>(), "mpi_mose:barrier", std::nullopt);
+      req, std::vector<at::Tensor>(), "mpi_mose:barrier", std::nullopt);
   return work;
 }
+
+//----------------------------------------------------
+// [SECTION]: Broadcast
+//----------------------------------------------------
 
 c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
     std::vector<at::Tensor>& tensors,
@@ -455,12 +483,20 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
   checkSingleTensor(tensors);
 
   auto& input_tensor = tensors[0];
-  // auto& output_tensor = tensors[0];
 
   MPI_Request request = MPI_REQUEST_NULL;
-
-  std::cout << "INFO:   in MPI_MOSE::broadcast()\n";
-
+#if __mpi_mose_prefer_nb_calls()
+  {
+    c10::DeviceGuard guard(input_tensor.device());
+    MPI_CHECK(MPI_Ibcast(
+        input_tensor.data_ptr(),
+        input_tensor.numel(),
+        mpiDatatype.at(input_tensor.scalar_type()),
+        opts.rootRank,
+        pgComm_,
+        &request));
+  }
+#else
   {
     c10::DeviceGuard guard(input_tensor.device());
     MPI_CHECK(MPI_Bcast(
@@ -470,6 +506,10 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::broadcast(
         opts.rootRank,
         pgComm_));
   }
+#endif
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:   in MPI_MOSE::broadcast()\n";
+#endif
 
   auto work = c10::make_intrusive<MOSEWork>(
       request,
@@ -505,8 +545,9 @@ c10::intrusive_ptr<Work> ProcessGroupMPI_MOSE::scatter(
     }
     checkSameSizeAndType(outputTensors[0], inputTensors[0]);
   }
-
-  std::cout << "INFO:   in MPI_MOSE::scatter()\n";
+#if __mpi_mose_leave_traces()
+  std::cout << "[MEM]:   in MPI_MOSE::scatter()\n";
+#endif
 
   auto& output_tensor = outputTensors[0];
   void* sendbuf = nullptr;
