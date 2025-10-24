@@ -259,6 +259,10 @@ c10::intrusive_ptr<ProcessGroupMPI_MOSE> ProcessGroupMPI_MOSE::
     createProcessGroupMPI_MOSE(std::vector<int> ranks) {
   MPI_CHECK(MPI_Init(nullptr, nullptr));
 
+  // if (std::atexit(ProcessGroupMPI_MOSE::mpiExit)) {
+  //   TORCH_CHECK(false, "Fail to register the MPI_MOSE exit handler");
+  // }
+
   MPI_Comm groupComm = MPI_COMM_WORLD;
   int rank = -1;
   int size = -1;

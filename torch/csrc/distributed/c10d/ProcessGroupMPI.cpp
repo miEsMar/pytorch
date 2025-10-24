@@ -26,7 +26,7 @@
 
 //
 
-#define MPI_NO_WORKER_THREAD
+// #define MPI_NO_WORKER_THREAD
 // #define MPI_USE_DIRECT_NB_CALLS
 
 //
